@@ -1,0 +1,181 @@
+import package:geolocator/geolocator.dart;
+
+class LocationService {
+  static Future<Position> getCurrentLocation() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      throw Exception("Location services are disabled.");
+    }
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        throw Exception("Location permission denied.");
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      throw Exception("Location permissions are permanently denied.");
+    }
+
+    return await Geolocator.getCurrentPosition();
+  }
+}
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
+class WeatherService {
+  static const apiKey = 'YOUR_API_KEY';
+  static const baseUrl = 'https://api.openweathermap.org/data/2.5/weather';
+
+  static Future<Map<String, dynamic>> getWeather(double lat, double lon) async {
+    final response = await http.get(Uri.parse('$baseUrl?lat=$lat&lon=$lon&appid=$apiKey&units=metric'));
+
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    } else {
+      throw Exception("Failed to load weather data");
+    }
+  }
+}
+import 'package:flutter/material.dart';
+import 'location_service.dart';
+import 'weather_service.dart';
+import 'package:intl/intl.dart';
+
+void main() {
+  runApp(WeatherApp());
+}
+
+class WeatherApp extends StatelessWidget {
+
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Weather Forecasting App',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      home: WeatherHomePage(),
+    );
+  }
+}
+
+class WeatherHomePage extends StatefulWidget {
+
+  _WeatherHomePageState createState() => _WeatherHomePageState();
+}
+
+class _WeatherHomePageState extends State<WeatherHomePage> {
+  double? latitude;
+  double? longitude;
+  Map<String, dynamic>? weatherData;
+  bool isLoading = true;
+
+
+  void initState() {
+    super.initState();
+    _getLocationAndWeather();
+  }
+
+  _getLocationAndWeather() async {
+    try {
+      final position = await LocationService.getCurrentLocation();
+      setState(() {
+        latitude = position.latitude;
+        longitude = position.longitude;
+      });
+      final weather = await WeatherService.getWeather(latitude!, longitude!);
+      setState(() {
+        weatherData = weather;
+        isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+      });
+      _showErrorDialog(e.toString());
+    }
+  }
+
+  _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Error'),
+          content: Text(message),
+          actions: <Widget>[
+            TextButton(
+              child: Text('OK'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text("Weather Forecast"),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.refresh),
+            onPressed: _getLocationAndWeather,
+          ),
+        ],
+      ),
+      body: isLoading
+          ? Center(child: CircularProgressIndicator())
+          : weatherData == null
+              ? Center(child: Text("No weather data available"))
+              : Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Weather in your location',
+                        style: Theme.of(context).textTheme.headline5,
+                      ),
+                      SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Icon(Icons.location_on),
+                          SizedBox(width: 8),
+                          Text(
+                            "${latitude!.toStringAsFixed(2)}, ${longitude!.toStringAsFixed(2)}",
+                            style: TextStyle(fontSize: 16),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 24),
+                      Text(
+                        "Temperature: ${weatherData!['main']['temp']}°C",
+                        style: Theme.of(context).textTheme.headline6,
+                      ),
+                      SizedBox(height: 8),
+                      Text("Weather: ${weatherData!['weather'][0]['description']}"),
+                      SizedBox(height: 8),
+                      Text("Humidity: ${weatherData!['main']['humidity']}%"),
+                      SizedBox(height: 8),
+                      Text("Wind Speed: ${weatherData!['wind']['speed']} m/s"),
+                      SizedBox(height: 24),
+                      Text(
+                        "Last Updated: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.fromMillisecondsSinceEpoch(weatherData!['dt'] * 1000))}",
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+    );
+  }
+}
